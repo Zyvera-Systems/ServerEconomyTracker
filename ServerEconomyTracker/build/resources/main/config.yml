@@ -1,0 +1,21 @@
+database:
+  type: "SQLITE" # MYSQL oder SQLITE
+
+  mysql:
+    host: "0.0.0.0"
+    port: 3306
+    database: "economytracker"
+    username: "root"
+    password: "password"
+    pool-size: 10
+    maximum-lifetime: 1800000
+    connection-timeout: 10000
+
+  sqlite:
+    file: "plugins/ServerEconomyTracker/data.db"
+    pool-size: 1
+    connection-timeout: 10000
+
+tracker:
+  first-join-delay-seconds: 3 # default 3 sec.
+  scan-interval-seconds: 10 # default 10 sec.

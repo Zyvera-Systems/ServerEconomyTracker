@@ -1,0 +1,20 @@
+name: ServerEconomyTracker
+version: '1.0'
+main: dev.zyverasystems.ServerEconomyTracker
+api-version: '1.21'
+authors: [ Zyvera-Systems, GrueneKatze ]
+depend: [Vault]
+commands:
+  economytracker:
+    description: Main Command
+    usage: /economytracker
+    aliases:
+      - et
+
+permissions:
+  economytracker.stats:
+    description: Shows you the stats about the economy
+    default: true
+  economytracker.reload:
+    description: Allows reloading the plugin config and messages
+    default: op

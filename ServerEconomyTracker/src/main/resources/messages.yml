@@ -1,0 +1,18 @@
+prefix: "<gray>[<gold>EconomyTracker<gray>] "
+
+general:
+  unknown-subcommand: "<prefix><red>Unbekannter Subcommand."
+  usage: "<prefix><gray>Nutze: <yellow>/{label} stats"
+  totals-not-loaded: "<prefix><red>Totals sind noch nicht geladen."
+  reload-success: "<prefix><green>Config und Messages wurden neu geladen."
+  no-permission: "<prefix><red>Du hast keine Berechtigung dafür."
+
+stats:
+  header: "<gray><st>----------------------------------------</st>"
+  title: "<gold>EconomyTracker Stats"
+  current-total-balance: "<gray>Aktuelles Gesamtvermögen: <green>{value}"
+  total-sources: "<gray>Total Sources: <green>{value}"
+  total-sinks: "<gray>Total Sinks: <red>{value}"
+  total-transfer-volume: "<gray>Transfer-Volumen: <yellow>{value}"
+  total-net-change: "<gray>Nettoänderung: <aqua>{value}"
+  footer: "<gray><st>----------------------------------------</st>"
