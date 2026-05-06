@@ -4,6 +4,10 @@ main: dev.zyverasystems.ServerEconomyTracker
 api-version: '1.21'
 authors: [ Zyvera-Systems, GrueneKatze ]
 depend: [Vault]
+softdepend:
+  - Essentials
+  - XConomy
+
 commands:
   economytracker:
     description: Main Command
@@ -16,5 +20,5 @@ permissions:
     description: Shows you the stats about the economy
     default: true
   economytracker.reload:
-    description: Allows reloading the plugin config and messages
+    description: Reloading the plugin config and messages
     default: op

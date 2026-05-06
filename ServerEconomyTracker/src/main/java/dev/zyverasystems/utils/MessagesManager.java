@@ -2,6 +2,7 @@ package dev.zyverasystems.utils;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
@@ -17,10 +18,16 @@ public class MessagesManager {
     private final MiniMessage miniMessage;
     private File file;
     private YamlConfiguration config;
+    private final LegacyComponentSerializer legacySerializer;
 
     public MessagesManager(JavaPlugin plugin) {
         this.plugin = plugin;
         this.miniMessage = MiniMessage.miniMessage();
+        this.legacySerializer = LegacyComponentSerializer.builder()
+                .character('&')
+                .hexColors()
+                .useUnusualXRepeatedCharacterHexFormat()
+                .build();
     }
 
     public void load() {
@@ -55,7 +62,7 @@ public class MessagesManager {
     }
 
     public @NotNull Component get(String path) {
-        return miniMessage.deserialize(getRaw(path));
+        return parse(getRaw(path));
     }
 
     public @NotNull Component get(String path, Placeholder... placeholders) {
@@ -65,7 +72,17 @@ public class MessagesManager {
             text = text.replace("{" + placeholder.key() + "}", placeholder.value());
         }
 
-        return miniMessage.deserialize(text);
+        return parse(text);
+    }
+
+    private @NotNull Component parse(String text) {
+        // Unterstützt MiniMessage direkt
+        if (text.contains("<")) {
+            return miniMessage.deserialize(text);
+        }
+
+        // Unterstützt &a, &#ffffff und &x&f&f&f&f&f&f
+        return legacySerializer.deserialize(text);
     }
 
     private String applyPrefix(String text) {

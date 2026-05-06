@@ -1,6 +1,7 @@
 package dev.zyverasystems;
 
 import dev.zyverasystems.commands.EconomyTrackerCommand;
+import dev.zyverasystems.hooks.HookManager;
 import dev.zyverasystems.listener.PlayerJoinListener;
 import dev.zyverasystems.utils.EconomyTrackerService;
 import dev.zyverasystems.utils.MessagesManager;
@@ -16,6 +17,7 @@ public final class ServerEconomyTracker extends JavaPlugin {
     private DatabaseManager databaseManager;
     private EconomyTrackerService trackerService;
     private MessagesManager messagesManager;
+    private HookManager hookManager;
 
     @Override
     public void onEnable() {
@@ -43,7 +45,9 @@ public final class ServerEconomyTracker extends JavaPlugin {
             return;
         }
 
-        this.trackerService = new EconomyTrackerService(this, databaseManager, economy);
+        // Hooks
+        this.hookManager = new HookManager(this);
+        this.hookManager.loadHooks();
 
         this.trackerService = new EconomyTrackerService(this, databaseManager, economy);
 
@@ -122,6 +126,10 @@ public final class ServerEconomyTracker extends JavaPlugin {
 
     public MessagesManager getMessagesManager() {
         return messagesManager;
+    }
+
+    public HookManager getHookManager() {
+        return hookManager;
     }
 
     public void reloadPluginFiles() {

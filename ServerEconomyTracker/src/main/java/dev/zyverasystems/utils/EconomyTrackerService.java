@@ -1,6 +1,7 @@
 package dev.zyverasystems.utils;
 
 import dev.zyverasystems.ServerEconomyTracker;
+import dev.zyverasystems.hooks.HookManager;
 import dev.zyverasystems.utils.database.DatabaseManager;
 import dev.zyverasystems.utils.database.EconomyTotalsFunc;
 import dev.zyverasystems.utils.database.PlayerBalanceFunc;
@@ -21,6 +22,7 @@ public class EconomyTrackerService {
     private final PlayerBalanceFunc playerBalanceFunc;
     private final EconomyTotalsFunc economyTotalsFunc;
 
+    private HookManager hookManager;
     private EconomyTotals totals;
 
     public EconomyTrackerService(ServerEconomyTracker plugin, DatabaseManager databaseManager, Economy economy) {
@@ -70,7 +72,7 @@ public class EconomyTrackerService {
                 continue;
             }
 
-            BigDecimal balance = bd(economy.getBalance(offlinePlayer));
+            BigDecimal balance = getTotalWealth(offlinePlayer);
             totalBalance = totalBalance.add(balance);
 
             playerBalanceFunc.upsert(
@@ -103,7 +105,7 @@ public class EconomyTrackerService {
         int delaySeconds = plugin.getConfig().getInt("tracker.first-join-delay-seconds", 3);
 
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            BigDecimal balance = bd(economy.getBalance(player));
+            BigDecimal balance = getTotalWealth(player);
             long now = System.currentTimeMillis();
 
             if (balance.compareTo(BigDecimal.ZERO) > 0) {
@@ -136,7 +138,7 @@ public class EconomyTrackerService {
         for (Player player : Bukkit.getOnlinePlayers()) {
             UUID uuid = player.getUniqueId();
             String name = player.getName();
-            BigDecimal newBalance = bd(economy.getBalance(player));
+            BigDecimal newBalance = getTotalWealth(player);
 
             Optional<PlayerBalanceData> optional = playerBalanceFunc.findByUuid(uuid);
 
@@ -201,6 +203,13 @@ public class EconomyTrackerService {
 
     private BigDecimal scale(BigDecimal value) {
         return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal getTotalWealth(OfflinePlayer player) {
+        BigDecimal walletBalance = bd(economy.getBalance(player));
+        BigDecimal extraWealth = plugin.getHookManager().getTotalExtraWealth(player.getUniqueId());
+
+        return scale(walletBalance.add(extraWealth));
     }
 
     private BigDecimal calculateCurrentTotalBalance() {

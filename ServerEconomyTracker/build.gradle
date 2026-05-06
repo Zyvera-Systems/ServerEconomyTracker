@@ -21,6 +21,7 @@ repositories {
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT")
     compileOnly("com.github.MilkBowl:VaultAPI:1.7")
+    compileOnly "com.github.YiC200333:XConomyAPI:2.25.1"
 
     implementation 'com.zaxxer:HikariCP:6.3.0'
     implementation 'com.mysql:mysql-connector-j:9.6.0'
