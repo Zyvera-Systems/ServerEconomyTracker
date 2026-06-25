@@ -27,8 +27,6 @@ The plugin tracks money flow, detects sources and sinks, calculates total server
 - economytracker.stats
 - economytracker.reload
 
-
-
 ## Compatibility
 
 Supported Economy Systems
@@ -43,3 +41,13 @@ Supported Databeses
 - Java 21+
 - Vault
 - A compatible economy plugin
+
+## Faststats
+To collect anonymous usage statistics via FastStats to help improve the plugin.
+
+The following data is collected:
+- Plugin Version
+- Minecraft Version
+- Server Software (e.g. Paper, Purpur)
+
+No IP addresses, player data, or personal information is collected.
