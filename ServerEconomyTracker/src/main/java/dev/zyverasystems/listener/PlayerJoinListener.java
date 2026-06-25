@@ -13,6 +13,7 @@ public class PlayerJoinListener implements Listener {
         this.trackerService = trackerService;
     }
 
+
     @EventHandler
     public void onJoin(PlayerJoinEvent e) {
         trackerService.handleFirstJoin(e.getPlayer());

@@ -1,7 +1,6 @@
 package dev.zyverasystems.utils;
 
 import dev.zyverasystems.ServerEconomyTracker;
-import dev.zyverasystems.hooks.HookManager;
 import dev.zyverasystems.utils.database.DatabaseManager;
 import dev.zyverasystems.utils.database.EconomyTotalsFunc;
 import dev.zyverasystems.utils.database.PlayerBalanceFunc;
@@ -12,17 +11,20 @@ import org.bukkit.entity.Player;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 public class EconomyTrackerService {
+
+    private record PlayerSnapshot(String name, BigDecimal balance) {}
 
     private final ServerEconomyTracker plugin;
     private final Economy economy;
     private final PlayerBalanceFunc playerBalanceFunc;
     private final EconomyTotalsFunc economyTotalsFunc;
 
-    private HookManager hookManager;
     private EconomyTotals totals;
 
     public EconomyTrackerService(ServerEconomyTracker plugin, DatabaseManager databaseManager, Economy economy) {
@@ -32,16 +34,10 @@ public class EconomyTrackerService {
         this.economyTotalsFunc = new EconomyTotalsFunc(databaseManager);
     }
 
-    // Load or Create Totals
     public void loadOrCreateTotals() {
         this.totals = economyTotalsFunc.load().orElseGet(() -> {
             EconomyTotals newTotals = new EconomyTotals(
-                    false,
-                    bd(0),
-                    bd(0),
-                    bd(0),
-                    bd(0),
-                    bd(0),
+                    false, bd(0), bd(0), bd(0), bd(0), bd(0),
                     System.currentTimeMillis()
             );
             economyTotalsFunc.save(newTotals);
@@ -49,58 +45,42 @@ public class EconomyTrackerService {
         });
     }
 
-    // Set a Beseline,
-    // for running server with money
-    // in the environment
+    // Scans all known offline players once on first startup to establish a baseline total balance.
     public void performInitialBaselineIfNeeded() {
-        if (totals == null) {
-            throw new IllegalStateException("Totals are not loaded yet.");
-        }
-
+        if (totals == null) throw new IllegalStateException("Totals are not loaded yet.");
         if (totals.isBaselineImportDone()) {
             plugin.getLogger().info("Baseline already imported.");
             return;
         }
 
-        plugin.getLogger().info("Starte initialen Baseline-Import...");
+        plugin.getLogger().info("Starting initial baseline import...");
 
         BigDecimal totalBalance = bd(0);
         long now = System.currentTimeMillis();
 
         for (OfflinePlayer offlinePlayer : Bukkit.getOfflinePlayers()) {
-            if (offlinePlayer.getUniqueId() == null || offlinePlayer.getName() == null) {
-                continue;
-            }
+            if (offlinePlayer.getUniqueId() == null || offlinePlayer.getName() == null) continue;
 
             BigDecimal balance = getTotalWealth(offlinePlayer);
             totalBalance = totalBalance.add(balance);
-
-            playerBalanceFunc.upsert(
-                    offlinePlayer.getUniqueId(),
-                    offlinePlayer.getName(),
-                    balance,
-                    true,
-                    now
-            );
+            playerBalanceFunc.upsert(offlinePlayer.getUniqueId(), offlinePlayer.getName(), balance, true, now);
         }
 
-        totals.setCurrentTotalBalance(scale(totalBalance));
-        totals.setBaselineImportDone(true);
-        totals.setUpdatedAt(now);
+        synchronized (this) {
+            totals.setCurrentTotalBalance(scale(totalBalance));
+            totals.setBaselineImportDone(true);
+            totals.setUpdatedAt(now);
+            economyTotalsFunc.save(totals);
+        }
 
-        economyTotalsFunc.save(totals);
-
-        plugin.getLogger().info("Baseline-Import abgeschlossen. Gesamtvermögen: " + totalBalance);
+        plugin.getLogger().info("Baseline import complete. Total balance: " + totalBalance);
     }
 
-    // Player First Join
     public void handleFirstJoin(Player player) {
         UUID uuid = player.getUniqueId();
         Optional<PlayerBalanceData> existing = playerBalanceFunc.findByUuid(uuid);
 
-        if (existing.isPresent()) {
-            return;
-        }
+        if (existing.isPresent()) return;
 
         int delaySeconds = plugin.getConfig().getInt("tracker.first-join-delay-seconds", 3);
 
@@ -108,56 +88,72 @@ public class EconomyTrackerService {
             BigDecimal balance = getTotalWealth(player);
             long now = System.currentTimeMillis();
 
-            if (balance.compareTo(BigDecimal.ZERO) > 0) {
-                totals.setTotalSources(scale(totals.getTotalSources().add(balance)));
-                totals.setTotalNetChange(scale(totals.getTotalSources().subtract(totals.getTotalSinks())));
-                totals.setCurrentTotalBalance(scale(totals.getCurrentTotalBalance().add(balance)));
-                totals.setUpdatedAt(now);
-
-                economyTotalsFunc.save(totals);
-
-                plugin.getLogger().info("Neuer Spieler mit Startgeld erkannt: " + player.getName() + " +" + balance);
-            }
-
-            playerBalanceFunc.upsert(
-                    uuid,
-                    player.getName(),
-                    balance,
-                    true,
-                    now
-            );
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                synchronized (EconomyTrackerService.this) {
+                    if (balance.compareTo(BigDecimal.ZERO) > 0) {
+                        totals.setTotalSources(scale(totals.getTotalSources().add(balance)));
+                        totals.setTotalNetChange(scale(totals.getTotalSources().subtract(totals.getTotalSinks())));
+                        totals.setCurrentTotalBalance(scale(totals.getCurrentTotalBalance().add(balance)));
+                        totals.setUpdatedAt(now);
+                        economyTotalsFunc.save(totals);
+                        plugin.getLogger().info("New player with starting balance: " + player.getName() + " +" + balance);
+                    }
+                    playerBalanceFunc.upsert(uuid, player.getName(), balance, true, now);
+                }
+            });
         }, delaySeconds * 20L);
     }
 
-    // Scaning Online Players
-    public void scanOnlinePlayers() {
+    // Must be called from the main thread — reads Vault balances safely, then processes DB async.
+    public void scanAndSchedule() {
+        Map<UUID, PlayerSnapshot> snapshots = new LinkedHashMap<>();
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            snapshots.put(player.getUniqueId(), new PlayerSnapshot(player.getName(), getTotalWealth(player)));
+        }
+        if (snapshots.isEmpty()) return;
+
+        // When transaction hooks are active they handle source/sink/transfer booking in real-time.
+        // The scan then only updates stored balances to keep player_balances table current.
+        boolean useHeuristic = !plugin.getHookManager().hasTransactionHooks();
+
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                processSnapshots(snapshots, useHeuristic);
+            } catch (Exception e) {
+                plugin.getLogger().severe("Error during economy scan: " + e.getMessage());
+                e.printStackTrace();
+            }
+        });
+    }
+
+    private void processSnapshots(Map<UUID, PlayerSnapshot> snapshots, boolean useHeuristic) {
         BigDecimal positiveSum = bd(0);
         BigDecimal negativeSum = bd(0);
         long now = System.currentTimeMillis();
 
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            UUID uuid = player.getUniqueId();
-            String name = player.getName();
-            BigDecimal newBalance = getTotalWealth(player);
+        for (Map.Entry<UUID, PlayerSnapshot> entry : snapshots.entrySet()) {
+            UUID uuid = entry.getKey();
+            PlayerSnapshot snap = entry.getValue();
 
             Optional<PlayerBalanceData> optional = playerBalanceFunc.findByUuid(uuid);
 
             if (optional.isEmpty()) {
-                playerBalanceFunc.upsert(uuid, name, newBalance, true, now);
+                playerBalanceFunc.upsert(uuid, snap.name(), snap.balance(), true, now);
                 continue;
             }
 
-            PlayerBalanceData oldData = optional.get();
-            BigDecimal oldBalance = oldData.getBalance();
-            BigDecimal delta = scale(newBalance.subtract(oldBalance));
+            BigDecimal delta = scale(snap.balance().subtract(optional.get().getBalance()));
 
-            if (delta.compareTo(BigDecimal.ZERO) > 0) {
-                positiveSum = positiveSum.add(delta);
-            } else if (delta.compareTo(BigDecimal.ZERO) < 0) {
-                negativeSum = negativeSum.add(delta.abs());
+            if (useHeuristic) {
+                if (delta.compareTo(BigDecimal.ZERO) > 0) positiveSum = positiveSum.add(delta);
+                else if (delta.compareTo(BigDecimal.ZERO) < 0) negativeSum = negativeSum.add(delta.abs());
             }
 
-            playerBalanceFunc.upsert(uuid, name, newBalance, true, now);
+            playerBalanceFunc.upsert(uuid, snap.name(), snap.balance(), true, now);
+        }
+
+        if (!useHeuristic) {
+            return;
         }
 
         if (positiveSum.compareTo(BigDecimal.ZERO) == 0 && negativeSum.compareTo(BigDecimal.ZERO) == 0) {
@@ -168,25 +164,46 @@ public class EconomyTrackerService {
         BigDecimal sinkPart = negativeSum.subtract(positiveSum).max(BigDecimal.ZERO);
         BigDecimal transferPart = positiveSum.min(negativeSum);
 
-        totals.setTotalSources(scale(totals.getTotalSources().add(sourcePart)));
-        totals.setTotalSinks(scale(totals.getTotalSinks().add(sinkPart)));
-        totals.setTotalTransferVolume(scale(totals.getTotalTransferVolume().add(transferPart)));
-        totals.setTotalNetChange(scale(totals.getTotalSources().subtract(totals.getTotalSinks())));
-
-        BigDecimal currentTotalBalance = calculateCurrentTotalBalance();
-        totals.setCurrentTotalBalance(currentTotalBalance);
-        totals.setUpdatedAt(now);
-
-        economyTotalsFunc.save(totals);
+        synchronized (this) {
+            totals.setTotalSources(scale(totals.getTotalSources().add(sourcePart)));
+            totals.setTotalSinks(scale(totals.getTotalSinks().add(sinkPart)));
+            totals.setTotalTransferVolume(scale(totals.getTotalTransferVolume().add(transferPart)));
+            totals.setTotalNetChange(scale(totals.getTotalSources().subtract(totals.getTotalSinks())));
+            totals.setCurrentTotalBalance(scale(totals.getCurrentTotalBalance().add(positiveSum).subtract(negativeSum)));
+            totals.setUpdatedAt(now);
+            economyTotalsFunc.save(totals);
+        }
 
         plugin.getLogger().info(
-                "Scan abgeschlossen | +" + positiveSum +
-                        " | -" + negativeSum +
-                        " | source=" + sourcePart +
-                        " | sink=" + sinkPart +
-                        " | transfer=" + transferPart +
-                        " | total=" + currentTotalBalance
+                "Scan | +" + positiveSum + " | -" + negativeSum +
+                " | source=" + sourcePart + " | sink=" + sinkPart +
+                " | transfer=" + transferPart + " | total=" + totals.getCurrentTotalBalance()
         );
+    }
+
+    public synchronized void recordSource(BigDecimal amount) {
+        if (totals == null || amount.compareTo(BigDecimal.ZERO) <= 0) return;
+        totals.setTotalSources(scale(totals.getTotalSources().add(amount)));
+        totals.setTotalNetChange(scale(totals.getTotalSources().subtract(totals.getTotalSinks())));
+        totals.setCurrentTotalBalance(scale(totals.getCurrentTotalBalance().add(amount)));
+        totals.setUpdatedAt(System.currentTimeMillis());
+        economyTotalsFunc.save(totals);
+    }
+
+    public synchronized void recordSink(BigDecimal amount) {
+        if (totals == null || amount.compareTo(BigDecimal.ZERO) <= 0) return;
+        totals.setTotalSinks(scale(totals.getTotalSinks().add(amount)));
+        totals.setTotalNetChange(scale(totals.getTotalSources().subtract(totals.getTotalSinks())));
+        totals.setCurrentTotalBalance(scale(totals.getCurrentTotalBalance().subtract(amount)));
+        totals.setUpdatedAt(System.currentTimeMillis());
+        economyTotalsFunc.save(totals);
+    }
+
+    public synchronized void recordTransfer(BigDecimal amount) {
+        if (totals == null || amount.compareTo(BigDecimal.ZERO) <= 0) return;
+        totals.setTotalTransferVolume(scale(totals.getTotalTransferVolume().add(amount)));
+        totals.setUpdatedAt(System.currentTimeMillis());
+        economyTotalsFunc.save(totals);
     }
 
     public EconomyTotals getTotals() {
@@ -208,22 +225,6 @@ public class EconomyTrackerService {
     private BigDecimal getTotalWealth(OfflinePlayer player) {
         BigDecimal walletBalance = bd(economy.getBalance(player));
         BigDecimal extraWealth = plugin.getHookManager().getTotalExtraWealth(player.getUniqueId());
-
         return scale(walletBalance.add(extraWealth));
-    }
-
-    private BigDecimal calculateCurrentTotalBalance() {
-        BigDecimal total = bd(0);
-
-        for (OfflinePlayer offlinePlayer : Bukkit.getOfflinePlayers()) {
-            UUID uuid = offlinePlayer.getUniqueId();
-            Optional<PlayerBalanceData> optional = playerBalanceFunc.findByUuid(uuid);
-
-            if (optional.isPresent()) {
-                total = total.add(optional.get().getBalance());
-            }
-        }
-
-        return scale(total);
     }
 }

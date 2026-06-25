@@ -1,5 +1,7 @@
 package dev.zyverasystems;
 
+import dev.faststats.bukkit.BukkitContext;
+import dev.faststats.data.Metric;
 import dev.zyverasystems.commands.EconomyTrackerCommand;
 import dev.zyverasystems.hooks.HookManager;
 import dev.zyverasystems.listener.PlayerJoinListener;
@@ -10,14 +12,26 @@ import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 public final class ServerEconomyTracker extends JavaPlugin {
+
 
     private Economy economy;
     private DatabaseManager databaseManager;
     private EconomyTrackerService trackerService;
     private MessagesManager messagesManager;
     private HookManager hookManager;
+    private BukkitTask scanTask;
+
+    // FastStats
+    private final BukkitContext context = new BukkitContext.Factory(this, "536bbd0e7a9e33beb90b5403ef89ef83")
+            .metrics(factory -> factory
+                    .addMetric(Metric.string("plugin_version", () -> getDescription().getVersion()))
+                    .addMetric(Metric.string("minecraft_version", Bukkit::getMinecraftVersion))
+                    .addMetric(Metric.string("server_software", Bukkit::getName))
+                    .create())
+            .create();
 
     @Override
     public void onEnable() {
@@ -26,12 +40,12 @@ public final class ServerEconomyTracker extends JavaPlugin {
         this.messagesManager = new MessagesManager(this);
         this.messagesManager.load();
 
-        // Economy setup + Logging
         if (!setupEconomy()) {
             getLogger().severe("Vault or Economy-Provider not found.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+
 
         this.databaseManager = new DatabaseManager(this);
 
@@ -45,15 +59,10 @@ public final class ServerEconomyTracker extends JavaPlugin {
             return;
         }
 
-        // Hooks
-        this.hookManager = new HookManager(this);
-        this.hookManager.loadHooks();
-
         this.trackerService = new EconomyTrackerService(this, databaseManager, economy);
 
         try {
             trackerService.loadOrCreateTotals();
-            trackerService.performInitialBaselineIfNeeded();
         } catch (Exception e) {
             getLogger().severe("Error initializing tracker: " + e.getMessage());
             e.printStackTrace();
@@ -61,41 +70,42 @@ public final class ServerEconomyTracker extends JavaPlugin {
             return;
         }
 
-        // Listener
+        this.hookManager = new HookManager(this, trackerService);
+        this.hookManager.loadHooks();
+
         Bukkit.getPluginManager().registerEvents(new PlayerJoinListener(trackerService), this);
 
-        // Comands
         EconomyTrackerCommand command = new EconomyTrackerCommand(this, trackerService, messagesManager);
         getCommand("economytracker").setExecutor(command);
         getCommand("economytracker").setTabCompleter(command);
 
-        // Scann invervall
-        int scanIntervalSeconds = getConfig().getInt("tracker.scan-interval-seconds", 10);
-        long scanIntervalTicks = scanIntervalSeconds * 20L;
-
-        Bukkit.getScheduler().runTaskTimerAsynchronously(
-                this,
-                () -> {
-                    try {
-                        trackerService.scanOnlinePlayers();
-                    } catch (Exception e) {
-                        getLogger().severe("Fehler beim Economy-Scan: " + e.getMessage());
-                        e.printStackTrace();
-                    }
-                },
-                scanIntervalTicks,
-                scanIntervalTicks
-        );
-
         sendEnabled();
+
+        // Run baseline import async to avoid blocking the main thread, then start scanner
+        Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
+            try {
+                trackerService.performInitialBaselineIfNeeded();
+            } catch (Exception e) {
+                getLogger().severe("Error during baseline import: " + e.getMessage());
+                e.printStackTrace();
+            }
+            Bukkit.getScheduler().runTask(ServerEconomyTracker.this, ServerEconomyTracker.this::startScanTask);
+        });
+        context.ready();
     }
 
     @Override
     public void onDisable() {
-        getLogger().info("EconomyTracker is disableing.");
+        if (scanTask != null) {
+            scanTask.cancel();
+        }
+        if (databaseManager != null) {
+            databaseManager.close();
+        }
+        context.shutdown();
+        getLogger().info("EconomyTracker has been disabled.");
     }
 
-    // Economy setup
     private boolean setupEconomy() {
         if (getServer().getPluginManager().getPlugin("Vault") == null) {
             return false;
@@ -112,11 +122,33 @@ public final class ServerEconomyTracker extends JavaPlugin {
         return this.economy != null;
     }
 
+    private void startScanTask() {
+        if (scanTask != null) {
+            scanTask.cancel();
+        }
+        int scanIntervalSeconds = getConfig().getInt("tracker.scan-interval-seconds", 10);
+        long scanIntervalTicks = scanIntervalSeconds * 20L;
+
+        scanTask = Bukkit.getScheduler().runTaskTimer(
+                this,
+                () -> {
+                    try {
+                        trackerService.scanAndSchedule();
+                    } catch (Exception e) {
+                        getLogger().severe("Error starting economy scan: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                },
+                scanIntervalTicks,
+                scanIntervalTicks
+        );
+    }
+
     public Economy getEconomy() {
         return economy;
     }
 
-    public DatabaseManager gedtDatabaseManager() {
+    public DatabaseManager getDatabaseManager() {
         return databaseManager;
     }
 
@@ -135,6 +167,7 @@ public final class ServerEconomyTracker extends JavaPlugin {
     public void reloadPluginFiles() {
         reloadConfig();
         messagesManager.reload();
+        startScanTask();
     }
 
     public void sendEnabled() {
@@ -146,9 +179,9 @@ public final class ServerEconomyTracker extends JavaPlugin {
         getLogger().info("/_______ \\/ ____|  \\_/  \\___  >__|  (____  /_______  / ____/____  > |__|  \\___  >__|_|  /____  >");
         getLogger().info("        \\/\\/                \\/           \\/        \\/\\/         \\/            \\/      \\/     \\/ ");
         getLogger().info("-----------------------------------------------------------------------------------------------------");
-        getLogger().info("Author: ZyveraSystems, GrueneKatze");
-        getLogger().info("EconomyTracker is activ.");
+        getLogger().info("Author: ZyveraSystems, GreenFPS");
+        getLogger().info("EconomyTracker is active.");
         getLogger().info("Economy-Provider: " + economy.getName());
-        getLogger().info("Datenbanktyp: " + databaseManager.getDatabaseType());
+        getLogger().info("Database type: " + databaseManager.getDatabaseType());
     }
 }

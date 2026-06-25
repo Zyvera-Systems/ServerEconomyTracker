@@ -27,7 +27,6 @@ public class XConomyHook implements EconomyWealthHook {
 
     @Override
     public BigDecimal getExtraWealth(UUID playerUuid) {
-
         return BigDecimal.ZERO;
     }
 }

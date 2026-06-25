@@ -2,7 +2,7 @@ prefix: "<gray>[<gold>EconomyTracker<gray>] "
 
 general:
   unknown-subcommand: "<prefix><red>Unknown subcommand."
-  usage: "<prefix><gray>Usage: <yellow>/et stats"
+  usage: "<prefix><gray>Usage: <yellow>/economytracker stats or /et stats"
   totals-not-loaded: "<prefix><red>Totals are not loaded yet."
   reload-success: "<prefix><green>Config and messages have been reloaded."
   no-permission: "<prefix><red>You do not have permission to do that."

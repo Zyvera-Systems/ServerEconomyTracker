@@ -45,7 +45,7 @@ public class EconomyTotalsFunc {
             return Optional.of(totals);
 
         } catch (Exception e) {
-            throw new RuntimeException("Fehler beim Laden von economy_totals", e);
+            throw new RuntimeException("Error loading economy_totals", e);
         }
     }
 
@@ -95,7 +95,7 @@ public class EconomyTotalsFunc {
             }
 
         } catch (Exception e) {
-            throw new RuntimeException("Error occurred from saveing economy_totals", e);
+            throw new RuntimeException("Error saving economy_totals", e);
         }
     }
 }

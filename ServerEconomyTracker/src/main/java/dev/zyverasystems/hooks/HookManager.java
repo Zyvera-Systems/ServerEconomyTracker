@@ -1,9 +1,9 @@
 package dev.zyverasystems.hooks;
 
 import dev.zyverasystems.ServerEconomyTracker;
-import dev.zyverasystems.hooks.plugins.EssentialsXHook;
-import dev.zyverasystems.hooks.plugins.XConomyHook;
+import dev.zyverasystems.hooks.plugins.EssentialsXTransactionHook;
 import dev.zyverasystems.hooks.plugins.XConomyTransactionHook;
+import dev.zyverasystems.utils.EconomyTrackerService;
 import org.bukkit.Bukkit;
 
 import java.math.BigDecimal;
@@ -14,11 +14,13 @@ import java.util.UUID;
 public class HookManager {
 
     private final ServerEconomyTracker plugin;
+    private final EconomyTrackerService trackerService;
     private final List<EconomyWealthHook> wealthHooks = new ArrayList<>();
     private final List<EconomyTransactionHook> transactionHooks = new ArrayList<>();
 
-    public HookManager(ServerEconomyTracker plugin) {
+    public HookManager(ServerEconomyTracker plugin, EconomyTrackerService trackerService) {
         this.plugin = plugin;
+        this.trackerService = trackerService;
     }
 
     public void loadHooks() {
@@ -26,27 +28,25 @@ public class HookManager {
         transactionHooks.clear();
 
         if (Bukkit.getPluginManager().getPlugin("Essentials") != null) {
-            EconomyWealthHook essentialsHook = new EssentialsXHook(plugin);
-            if (essentialsHook.isAvailable()) {
-                wealthHooks.add(essentialsHook);
-                plugin.getLogger().info("Loaded wealth hook: " + essentialsHook.getName());
-            }
+            registerTransactionHook(new EssentialsXTransactionHook(plugin, trackerService));
         }
 
         if (Bukkit.getPluginManager().getPlugin("XConomy") != null) {
-            EconomyWealthHook xConomyWealthHook = new XConomyHook(plugin);
-            if (xConomyWealthHook.isAvailable()) {
-                wealthHooks.add(xConomyWealthHook);
-                plugin.getLogger().info("Loaded wealth hook: " + xConomyWealthHook.getName());
-            }
-
-            EconomyTransactionHook xConomyTransactionHook = new XConomyTransactionHook(plugin);
-            if (xConomyTransactionHook.isAvailable()) {
-                transactionHooks.add(xConomyTransactionHook);
-                xConomyTransactionHook.register();
-                plugin.getLogger().info("Loaded transaction hook: " + xConomyTransactionHook.getName());
-            }
+            registerTransactionHook(new XConomyTransactionHook(plugin, trackerService));
         }
+    }
+
+    private void registerWealthHook(EconomyWealthHook hook) {
+        if (!hook.isAvailable()) return;
+        wealthHooks.add(hook);
+        plugin.getLogger().info("Loaded wealth hook: " + hook.getName());
+    }
+
+    private void registerTransactionHook(EconomyTransactionHook hook) {
+        if (!hook.isAvailable()) return;
+        transactionHooks.add(hook);
+        hook.register();
+        plugin.getLogger().info("Loaded transaction hook: " + hook.getName());
     }
 
     public BigDecimal getTotalExtraWealth(UUID playerUuid) {
@@ -61,5 +61,17 @@ public class HookManager {
         }
 
         return total;
+    }
+
+    public boolean hasTransactionHooks() {
+        return !transactionHooks.isEmpty();
+    }
+
+    public List<EconomyWealthHook> getWealthHooks() {
+        return wealthHooks;
+    }
+
+    public List<EconomyTransactionHook> getTransactionHooks() {
+        return transactionHooks;
     }
 }

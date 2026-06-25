@@ -46,7 +46,7 @@ public class PlayerBalanceFunc {
                 return Optional.of(data);
             }
         } catch (Exception e) {
-            throw new RuntimeException("Fehler beim Laden von player_balances für UUID " + uuid, e);
+            throw new RuntimeException("Error loading player_balances for UUID " + uuid, e);
         }
     }
 

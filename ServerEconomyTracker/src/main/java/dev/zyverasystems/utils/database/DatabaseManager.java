@@ -116,7 +116,7 @@ public class DatabaseManager {
 
     public Connection getConnection() throws SQLException {
         if (dataSource == null) {
-            throw new IllegalStateException("DataSource wurde noch nicht initialisiert.");
+            throw new IllegalStateException("DataSource has not been initialized yet.");
         }
         return dataSource.getConnection();
     }
