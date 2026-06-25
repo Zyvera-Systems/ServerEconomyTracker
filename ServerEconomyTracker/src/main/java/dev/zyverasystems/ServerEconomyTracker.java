@@ -1,7 +1,7 @@
 package dev.zyverasystems;
 
+import dev.faststats.Metrics;
 import dev.faststats.bukkit.BukkitContext;
-import dev.faststats.data.Metric;
 import dev.zyverasystems.commands.EconomyTrackerCommand;
 import dev.zyverasystems.hooks.HookManager;
 import dev.zyverasystems.listener.PlayerJoinListener;
@@ -26,11 +26,7 @@ public final class ServerEconomyTracker extends JavaPlugin {
 
     // FastStats
     private final BukkitContext context = new BukkitContext.Factory(this, "536bbd0e7a9e33beb90b5403ef89ef83")
-            .metrics(factory -> factory
-                    .addMetric(Metric.string("plugin_version", () -> getDescription().getVersion()))
-                    .addMetric(Metric.string("minecraft_version", Bukkit::getMinecraftVersion))
-                    .addMetric(Metric.string("server_software", Bukkit::getName))
-                    .create())
+            .metrics(Metrics.Factory::create)
             .create();
 
     @Override
