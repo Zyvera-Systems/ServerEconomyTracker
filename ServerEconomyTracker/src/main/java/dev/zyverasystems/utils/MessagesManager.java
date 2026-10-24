@@ -57,7 +57,9 @@ public class MessagesManager {
             throw new IllegalStateException("MessagesManager wurde noch nicht geladen.");
         }
 
-        String value = config.getString(path, "<red>Missing message: " + path);
+        // getString(path) falls back to the bundled defaults, so new keys work with older messages.yml files
+        String value = config.getString(path);
+        if (value == null) value = "<red>Missing message: " + path;
         return applyPrefix(value);
     }
 

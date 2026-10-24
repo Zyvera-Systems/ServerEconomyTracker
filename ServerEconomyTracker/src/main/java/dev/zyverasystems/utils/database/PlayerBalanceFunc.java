@@ -11,6 +11,8 @@ import java.util.UUID;
 
 public class PlayerBalanceFunc {
 
+    public static final int MAX_NAME_LENGTH = 64;
+
     private final DatabaseManager databaseManager;
 
     public PlayerBalanceFunc(DatabaseManager databaseManager) {
@@ -52,6 +54,9 @@ public class PlayerBalanceFunc {
 
     // Update when Player exists or Insert when not
     public void upsert(UUID uuid, String name, BigDecimal balance, boolean knownPlayer, long lastUpdated) {
+        if (name != null && name.length() > MAX_NAME_LENGTH) {
+            name = name.substring(0, MAX_NAME_LENGTH);
+        }
 
         // Update
         String updateSql = """

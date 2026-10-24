@@ -7,6 +7,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Locale;
@@ -87,7 +88,7 @@ public class DatabaseManager {
         String playerBalancesTable = """
                 CREATE TABLE IF NOT EXISTS player_balances (
                     uuid VARCHAR(36) PRIMARY KEY,
-                    name VARCHAR(16) NOT NULL,
+                    name VARCHAR(64) NOT NULL,
                     balance DECIMAL(18,2) NOT NULL,
                     known_player BOOLEAN NOT NULL,
                     last_updated BIGINT NOT NULL
@@ -111,6 +112,21 @@ public class DatabaseManager {
              Statement statement = connection.createStatement()) {
             statement.executeUpdate(playerBalancesTable);
             statement.executeUpdate(economyTotalsTable);
+
+            migrateNameColumn(connection, statement);
+        }
+    }
+
+    // Older versions created the name column as VARCHAR(16). MySQL rejects longer names
+    // (offline-mode / Bedrock prefixes), so widen it. SQLite ignores VARCHAR lengths.
+    private void migrateNameColumn(Connection connection, Statement statement) throws SQLException {
+        if (databaseType != DatabaseType.MYSQL) return;
+
+        try (ResultSet columns = connection.getMetaData().getColumns(connection.getCatalog(), null, "player_balances", "name")) {
+            if (columns.next() && columns.getInt("COLUMN_SIZE") < PlayerBalanceFunc.MAX_NAME_LENGTH) {
+                statement.executeUpdate("ALTER TABLE player_balances MODIFY name VARCHAR(" + PlayerBalanceFunc.MAX_NAME_LENGTH + ") NOT NULL");
+                plugin.getLogger().info("Widened player_balances.name to VARCHAR(" + PlayerBalanceFunc.MAX_NAME_LENGTH + ").");
+            }
         }
     }
 

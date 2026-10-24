@@ -2,40 +2,35 @@ package dev.zyverasystems.hooks.plugins;
 
 import dev.zyverasystems.ServerEconomyTracker;
 import dev.zyverasystems.hooks.EconomyTransactionHook;
+import dev.zyverasystems.hooks.TransactionPairer;
 import dev.zyverasystems.utils.EconomyTrackerService;
 import me.yic.xconomy.api.event.NonPlayerAccountEvent;
 import me.yic.xconomy.api.event.PlayerAccountEvent;
 import org.bukkit.Bukkit;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.math.BigDecimal;
 import java.util.Set;
-import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class XConomyTransactionHook implements EconomyTransactionHook, Listener {
 
     private static final Set<String> KNOWN_TRANSFER_METHODS = Set.of("pay");
 
-    private static final long PAIR_WINDOW_TICKS = 5L;
-
     private final ServerEconomyTracker plugin;
     private final EconomyTrackerService trackerService;
-    private final ConcurrentLinkedQueue<PendingWithdrawal> pendingWithdrawals = new ConcurrentLinkedQueue<>();
+    private final XConomyHook accountHook;
+    private final TransactionPairer pairer;
+    // /pay can have a payment-tax, so sender and receiver amounts may differ.
+    private final TransactionPairer payPairer;
 
-    private static class PendingWithdrawal {
-        final BigDecimal amount;
-        BukkitTask task;
-
-        PendingWithdrawal(BigDecimal amount) {
-            this.amount = amount;
-        }
-    }
-
-    public XConomyTransactionHook(ServerEconomyTracker plugin, EconomyTrackerService trackerService) {
+    public XConomyTransactionHook(ServerEconomyTracker plugin, EconomyTrackerService trackerService, XConomyHook accountHook) {
         this.plugin = plugin;
         this.trackerService = trackerService;
+        this.accountHook = accountHook;
+        this.pairer = new TransactionPairer(plugin, trackerService, false);
+        this.payPairer = new TransactionPairer(plugin, trackerService, true);
     }
 
     @Override
@@ -53,55 +48,78 @@ public class XConomyTransactionHook implements EconomyTransactionHook, Listener 
         Bukkit.getPluginManager().registerEvents(this, plugin);
     }
 
-    @EventHandler
+    @Override
+    public void shutdown() {
+        pairer.flush();
+        payPairer.flush();
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerAccount(PlayerAccountEvent event) {
         BigDecimal amount = event.getamount();
         Boolean isAdd = event.getisadd();
         String method = event.getmethod();
+        String key = event.getUniqueId().toString();
 
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0 || isAdd == null) return;
+        if (isAdd == null) {
+            handleSet(key, event.getbalance(), amount);
+            return;
+        }
+
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) return;
+
+        trackerService.noteBalanceChange(key, isAdd ? amount : amount.negate());
 
         plugin.getLogger().fine("[XConomy] player=" + event.getUniqueId()
                 + " add=" + isAdd + " amount=" + amount + " method=" + method);
 
         if (method != null && KNOWN_TRANSFER_METHODS.contains(method.toLowerCase())) {
-            // Two events per /pay (sender + receiver). Count only sender to avoid doubling.
-            if (!isAdd) {
-                Bukkit.getScheduler().runTaskAsynchronously(plugin, () ->
-                        trackerService.recordTransfer(amount));
-            }
+            // Two events per /pay (sender + receiver); the pairer books them as one transfer
+            // and a missing difference (tax) as a sink.
+            payPairer.handle(isAdd, amount);
             return;
         }
 
-        handleUnknownMethodEvent(isAdd, amount);
+        pairer.handle(isAdd, amount);
     }
 
-    private void handleUnknownMethodEvent(boolean isAdd, BigDecimal amount) {
-        if (!isAdd) {
-            PendingWithdrawal entry = new PendingWithdrawal(amount);
-            entry.task = Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () -> {
-                if (pendingWithdrawals.remove(entry)) {
-                    trackerService.recordSink(amount);
-                }
-            }, PAIR_WINDOW_TICKS);
-            pendingWithdrawals.add(entry);
-        } else {
-            for (PendingWithdrawal pending : pendingWithdrawals) {
-                if (pending.amount.compareTo(amount) == 0 && pendingWithdrawals.remove(pending)) {
-                    pending.task.cancel();
-                    Bukkit.getScheduler().runTaskAsynchronously(plugin, () ->
-                            trackerService.recordTransfer(amount));
-                    return;
-                }
-            }
-            // No matching withdrawal → money came from the server (jobs, rewards, admin commands, etc.)
-            Bukkit.getScheduler().runTaskAsynchronously(plugin, () ->
-                    trackerService.recordSource(amount));
-        }
-    }
-
-    // Non-player accounts (NPC shops, server accounts) — the matching PlayerAccountEvent handles booking.
-    @EventHandler
+    // Non-player accounts (banks, towns, NPC shops) are part of the economy too.
+    // Player -> bank pairs up as a transfer, money only leaving/entering the bank is a sink/source.
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onNonPlayerAccount(NonPlayerAccountEvent event) {
+        if (accountHook != null) accountHook.rememberAccount(event.getaccountname());
+
+        BigDecimal amount = event.getamount();
+        Boolean isAdd = event.getisadd();
+
+        if (isAdd == null) {
+            handleSet(EconomyTrackerService.ACCOUNTS_KEY, event.getbalance(), amount);
+            return;
+        }
+
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) return;
+
+        trackerService.noteBalanceChange(EconomyTrackerService.ACCOUNTS_KEY, isAdd ? amount : amount.negate());
+
+        plugin.getLogger().fine("[XConomy] account=" + event.getaccountname()
+                + " add=" + isAdd + " amount=" + amount + " method=" + event.getmethod());
+
+        pairer.handle(isAdd, amount);
+    }
+
+    // isAdd == null means "set" (e.g. /money set). XConomy fires the event before the change,
+    // so balance is the old value and amount the new one.
+    private void handleSet(String key, BigDecimal oldBalance, BigDecimal newBalance) {
+        if (oldBalance == null || newBalance == null) return;
+
+        BigDecimal delta = newBalance.subtract(oldBalance);
+        if (delta.signum() == 0) return;
+
+        trackerService.noteBalanceChange(key, delta);
+
+        plugin.getLogger().fine("[XConomy] set account=" + key + " old=" + oldBalance + " new=" + newBalance);
+
+        if (delta.signum() > 0) trackerService.recordSource(delta);
+        else trackerService.recordSink(delta.abs());
     }
 }

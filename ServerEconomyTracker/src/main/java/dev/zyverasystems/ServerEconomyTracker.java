@@ -15,14 +15,14 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 public final class ServerEconomyTracker extends JavaPlugin {
-
-
+    
     private Economy economy;
     private DatabaseManager databaseManager;
     private EconomyTrackerService trackerService;
     private MessagesManager messagesManager;
     private HookManager hookManager;
     private BukkitTask scanTask;
+    private BukkitTask flushTask;
 
     // FastStats
     private final BukkitContext context = new BukkitContext.Factory(this, "536bbd0e7a9e33beb90b5403ef89ef83")
@@ -36,13 +36,24 @@ public final class ServerEconomyTracker extends JavaPlugin {
         this.messagesManager = new MessagesManager(this);
         this.messagesManager.load();
 
-        if (!setupEconomy()) {
-            getLogger().severe("Vault or Economy-Provider not found.");
-            getServer().getPluginManager().disablePlugin(this);
+        if (setupEconomy()) {
+            initialize();
             return;
         }
 
+        // Some economy plugins register at Vault after we are enabled. The first tick runs
+        // after every plugin has been enabled, so try once more there.
+        Bukkit.getScheduler().runTask(this, () -> {
+            if (!setupEconomy()) {
+                getLogger().severe("Vault or Economy-Provider not found.");
+                getServer().getPluginManager().disablePlugin(this);
+                return;
+            }
+            initialize();
+        });
+    }
 
+    private void initialize() {
         this.databaseManager = new DatabaseManager(this);
 
         try {
@@ -77,6 +88,15 @@ public final class ServerEconomyTracker extends JavaPlugin {
 
         sendEnabled();
 
+        // Totals are changed in memory and written to the database once per second.
+        flushTask = Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
+            try {
+                trackerService.flushIfDirty();
+            } catch (Exception e) {
+                getLogger().severe("Error saving economy totals: " + e.getMessage());
+            }
+        }, 20L, 20L);
+
         // Run baseline import async to avoid blocking the main thread, then start scanner
         Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
             try {
@@ -95,11 +115,49 @@ public final class ServerEconomyTracker extends JavaPlugin {
         if (scanTask != null) {
             scanTask.cancel();
         }
+        if (flushTask != null) {
+            flushTask.cancel();
+        }
+
+        // Let running async DB work finish before the connection pool is closed.
+        waitForAsyncTasks();
+
+        // Book transactions still waiting for their counterpart, then save everything.
+        if (hookManager != null) {
+            hookManager.shutdown();
+        }
+        if (trackerService != null) {
+            try {
+                trackerService.flushIfDirty();
+            } catch (Exception e) {
+                getLogger().severe("Error saving economy totals on shutdown: " + e.getMessage());
+            }
+        }
+
         if (databaseManager != null) {
             databaseManager.close();
         }
         context.shutdown();
         getLogger().info("EconomyTracker has been disabled.");
+    }
+
+    private void waitForAsyncTasks() {
+        long deadline = System.currentTimeMillis() + 5000L;
+
+        while (System.currentTimeMillis() < deadline) {
+            boolean running = Bukkit.getScheduler().getActiveWorkers().stream()
+                    .anyMatch(worker -> worker.getOwner() == this);
+            if (!running) return;
+
+            try {
+                Thread.sleep(50L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+
+        getLogger().warning("Some async tasks did not finish within 5 seconds.");
     }
 
     private boolean setupEconomy() {

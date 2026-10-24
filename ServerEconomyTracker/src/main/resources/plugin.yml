@@ -1,5 +1,5 @@
 name: ServerEconomyTracker
-version: '1.0.1'
+version: '${version}'
 main: dev.zyverasystems.ServerEconomyTracker
 api-version: '1.21'
 authors: [ Zyvera-Systems, GrueneKatze ]
@@ -21,4 +21,7 @@ permissions:
     default: true
   economytracker.reload:
     description: Reloading the plugin config and messages
+    default: op
+  economytracker.baseline:
+    description: View and edit the economy baseline
     default: op

@@ -16,3 +16,13 @@ stats:
   total-transfer-volume: "<gray>Total Transfer Volume: <yellow>{value}"
   total-net-change: "<gray>Total Net Change: <aqua>{value}"
   footer: "<gray><st>----------------------------------------</st>"
+
+baseline:
+  current: "<prefix><gray>Current baseline (starting wealth): <green>{value}"
+  usage: "<prefix><gray>Usage: <yellow>/{label} baseline <set|add|remove> <amount> <gray>or <yellow>/{label} baseline recalculate"
+  invalid-amount: "<prefix><red>Invalid amount: <yellow>{input}"
+  updated: "<prefix><green>Baseline set to <yellow>{value}<green>. Current total wealth: <yellow>{total}"
+  recalculate-started: "<prefix><gray>Recalculating baseline from all player balances..."
+  recalculate-success: "<prefix><green>Baseline recalculated: <yellow>{value}<green>. Current total wealth: <yellow>{total}"
+  scan-running: "<prefix><red>A baseline scan is currently running. Please wait until it is finished."
+  error: "<prefix><red>Could not update the baseline. Check the console for details."

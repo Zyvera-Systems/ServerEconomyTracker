@@ -30,6 +30,13 @@ public class EconomyTotals {
         this.updatedAt = updatedAt;
     }
 
+    public EconomyTotals copy() {
+        return new EconomyTotals(
+                baselineImportDone, currentTotalBalance, totalSources, totalSinks,
+                totalTransferVolume, totalNetChange, updatedAt
+        );
+    }
+
     public boolean isBaselineImportDone() {
         return baselineImportDone;
     }
