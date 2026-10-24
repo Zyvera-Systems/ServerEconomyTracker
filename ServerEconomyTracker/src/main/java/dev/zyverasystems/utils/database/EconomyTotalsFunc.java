@@ -19,7 +19,7 @@ public class EconomyTotalsFunc {
     public Optional<EconomyTotals> load() {
         String sql = """
                 SELECT baseline_import_done, current_total_balance, total_sources, total_sinks,
-                       total_transfer_volume, total_net_change, updated_at
+                       total_transfer_volume, total_net_change, manual_correction, updated_at
                 FROM economy_totals
                 WHERE id = 1
                 """;
@@ -39,6 +39,7 @@ public class EconomyTotalsFunc {
                     rs.getBigDecimal("total_sinks"),
                     rs.getBigDecimal("total_transfer_volume"),
                     rs.getBigDecimal("total_net_change"),
+                    rs.getBigDecimal("manual_correction"),
                     rs.getLong("updated_at")
             );
 
@@ -56,7 +57,7 @@ public class EconomyTotalsFunc {
         String updateSql = """
                 UPDATE economy_totals
                 SET baseline_import_done = ?, current_total_balance = ?, total_sources = ?,
-                    total_sinks = ?, total_transfer_volume = ?, total_net_change = ?, updated_at = ?
+                    total_sinks = ?, total_transfer_volume = ?, total_net_change = ?, manual_correction = ?, updated_at = ?
                 WHERE id = 1
                 """;
 
@@ -64,8 +65,8 @@ public class EconomyTotalsFunc {
         String insertSql = """
                 INSERT INTO economy_totals (
                     id, baseline_import_done, current_total_balance, total_sources,
-                    total_sinks, total_transfer_volume, total_net_change, updated_at
-                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+                    total_sinks, total_transfer_volume, total_net_change, manual_correction, updated_at
+                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
                 """;
 
         try (Connection connection = databaseManager.getConnection();
@@ -77,7 +78,8 @@ public class EconomyTotalsFunc {
             updatePs.setBigDecimal(4, totals.getTotalSinks());
             updatePs.setBigDecimal(5, totals.getTotalTransferVolume());
             updatePs.setBigDecimal(6, totals.getTotalNetChange());
-            updatePs.setLong(7, totals.getUpdatedAt());
+            updatePs.setBigDecimal(7, totals.getManualCorrection());
+            updatePs.setLong(8, totals.getUpdatedAt());
 
             int rows = updatePs.executeUpdate();
 
@@ -89,7 +91,8 @@ public class EconomyTotalsFunc {
                     insertPs.setBigDecimal(4, totals.getTotalSinks());
                     insertPs.setBigDecimal(5, totals.getTotalTransferVolume());
                     insertPs.setBigDecimal(6, totals.getTotalNetChange());
-                    insertPs.setLong(7, totals.getUpdatedAt());
+                    insertPs.setBigDecimal(7, totals.getManualCorrection());
+                    insertPs.setLong(8, totals.getUpdatedAt());
                     insertPs.executeUpdate();
                 }
             }

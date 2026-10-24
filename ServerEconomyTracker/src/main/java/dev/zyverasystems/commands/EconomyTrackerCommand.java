@@ -19,6 +19,8 @@ import java.util.Locale;
 
 public class EconomyTrackerCommand implements TabExecutor {
 
+    private static final List<String> BASELINE_ACTIONS = List.of("set", "add", "remove", "reset", "recalculate");
+
     private final ServerEconomyTracker plugin;
     private final EconomyTrackerService trackerService;
     private final MessagesManager messages;
@@ -101,13 +103,22 @@ public class EconomyTrackerCommand implements TabExecutor {
             return;
         }
 
-        if (args.length == 1) {
-            sender.sendMessage(messages.get("baseline.current", MessagesManager.Placeholder.of("value", format(trackerService.getBaseline()))));
-            sender.sendMessage(messages.get("baseline.usage", MessagesManager.Placeholder.of("label", label)));
+        if (args.length == 1 || args[1].equalsIgnoreCase("info")) {
+            sendBaselineOverview(sender, label);
             return;
         }
 
         String action = args[1].toLowerCase(Locale.ROOT);
+
+        if (action.equals("help")) {
+            sendBaselineHelp(sender, label);
+            return;
+        }
+
+        if (!BASELINE_ACTIONS.contains(action)) {
+            sender.sendMessage(messages.get("baseline.unknown-action", MessagesManager.Placeholder.of("label", label)));
+            return;
+        }
 
         // A running scan overwrites the total at its end, so changes now would get lost.
         if (trackerService.isScanning()) {
@@ -117,28 +128,20 @@ public class EconomyTrackerCommand implements TabExecutor {
 
         if (action.equals("recalculate")) {
             sender.sendMessage(messages.get("baseline.recalculate-started"));
-            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-                try {
-                    BigDecimal total = trackerService.recalculateBaseline();
-                    sender.sendMessage(messages.get("baseline.recalculate-success",
-                            MessagesManager.Placeholder.of("value", format(trackerService.getBaseline())),
-                            MessagesManager.Placeholder.of("total", format(total))));
-                } catch (Exception e) {
-                    plugin.getLogger().severe("Error during baseline recalculation: " + e.getMessage());
-                    e.printStackTrace();
-                    sender.sendMessage(messages.get("baseline.error"));
-                }
-            });
+            runBaselineChange(sender, label, trackerService::recalculateBaseline);
             return;
         }
 
-        if (!action.equals("set") && !action.equals("add") && !action.equals("remove")) {
-            sender.sendMessage(messages.get("baseline.usage", MessagesManager.Placeholder.of("label", label)));
+        if (action.equals("reset")) {
+            runBaselineChange(sender, label, trackerService::resetManualCorrection);
             return;
         }
 
+        // set / add / remove need an amount
         if (args.length < 3) {
-            sender.sendMessage(messages.get("baseline.usage", MessagesManager.Placeholder.of("label", label)));
+            sender.sendMessage(messages.get("baseline.missing-amount",
+                    MessagesManager.Placeholder.of("label", label),
+                    MessagesManager.Placeholder.of("action", action)));
             return;
         }
 
@@ -148,23 +151,44 @@ public class EconomyTrackerCommand implements TabExecutor {
             return;
         }
 
+        switch (action) {
+            case "set" -> runBaselineChange(sender, label, () -> trackerService.setBaseline(amount));
+            case "add" -> runBaselineChange(sender, label, () -> trackerService.adjustManualCorrection(amount));
+            case "remove" -> runBaselineChange(sender, label, () -> trackerService.adjustManualCorrection(amount.negate()));
+        }
+    }
+
+    // Runs the change async (DB / full scan) and shows the new overview afterwards.
+    private void runBaselineChange(CommandSender sender, String label, Runnable change) {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             try {
-                switch (action) {
-                    case "set" -> trackerService.setBaseline(amount);
-                    case "add" -> trackerService.adjustBaseline(amount);
-                    case "remove" -> trackerService.adjustBaseline(amount.negate());
-                }
-
-                sender.sendMessage(messages.get("baseline.updated",
-                        MessagesManager.Placeholder.of("value", format(trackerService.getBaseline())),
-                        MessagesManager.Placeholder.of("total", format(trackerService.getTotals().getCurrentTotalBalance()))));
+                change.run();
+                sender.sendMessage(messages.get("baseline.updated"));
+                sendBaselineOverview(sender, label);
             } catch (Exception e) {
                 plugin.getLogger().severe("Error while updating baseline: " + e.getMessage());
                 e.printStackTrace();
                 sender.sendMessage(messages.get("baseline.error"));
             }
         });
+    }
+
+    private void sendBaselineOverview(CommandSender sender, String label) {
+        sender.sendMessage(messages.get("baseline.overview.header"));
+        sender.sendMessage(messages.get("baseline.overview.title"));
+        sender.sendMessage(messages.get("baseline.overview.baseline", MessagesManager.Placeholder.of("value", format(trackerService.getBaseline()))));
+        sender.sendMessage(messages.get("baseline.overview.scanned", MessagesManager.Placeholder.of("value", format(trackerService.getScannedBaseline()))));
+        sender.sendMessage(messages.get("baseline.overview.correction", MessagesManager.Placeholder.of("value", format(trackerService.getManualCorrection()))));
+        sender.sendMessage(messages.get("baseline.overview.total", MessagesManager.Placeholder.of("value", format(trackerService.getTotals().getCurrentTotalBalance()))));
+        sender.sendMessage(messages.get("baseline.overview.hint", MessagesManager.Placeholder.of("label", label)));
+        sender.sendMessage(messages.get("baseline.overview.footer"));
+    }
+
+    private void sendBaselineHelp(CommandSender sender, String label) {
+        MessagesManager.Placeholder labelPlaceholder = MessagesManager.Placeholder.of("label", label);
+        for (String key : List.of("header", "title", "explanation", "info", "set", "add", "remove", "reset", "recalculate", "footer")) {
+            sender.sendMessage(messages.get("baseline.help." + key, labelPlaceholder));
+        }
     }
 
     private BigDecimal parseAmount(String input) {
@@ -198,7 +222,7 @@ public class EconomyTrackerCommand implements TabExecutor {
         if (args.length == 2 && args[0].equalsIgnoreCase("baseline") && sender.hasPermission("economytracker.baseline")) {
             String input = args[1].toLowerCase(Locale.ROOT);
 
-            for (String option : List.of("set", "add", "remove", "recalculate")) {
+            for (String option : List.of("info", "help", "set", "add", "remove", "reset", "recalculate")) {
                 if (option.startsWith(input)) {
                     completions.add(option);
                 }

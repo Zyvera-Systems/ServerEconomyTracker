@@ -10,6 +10,9 @@ public class EconomyTotals {
     private BigDecimal totalSinks;
     private BigDecimal totalTransferVolume;
     private BigDecimal totalNetChange;
+    // Money the scan cannot see (e.g. a bank plugin without Vault support), set by an admin.
+    // Part of the baseline and kept when the baseline is recalculated.
+    private BigDecimal manualCorrection;
     private long updatedAt;
 
     public EconomyTotals(
@@ -19,6 +22,7 @@ public class EconomyTotals {
             BigDecimal totalSinks,
             BigDecimal totalTransferVolume,
             BigDecimal totalNetChange,
+            BigDecimal manualCorrection,
             long updatedAt
     ) {
         this.baselineImportDone = baselineImportDone;
@@ -27,14 +31,23 @@ public class EconomyTotals {
         this.totalSinks = totalSinks;
         this.totalTransferVolume = totalTransferVolume;
         this.totalNetChange = totalNetChange;
+        this.manualCorrection = manualCorrection;
         this.updatedAt = updatedAt;
     }
 
     public EconomyTotals copy() {
         return new EconomyTotals(
                 baselineImportDone, currentTotalBalance, totalSources, totalSinks,
-                totalTransferVolume, totalNetChange, updatedAt
+                totalTransferVolume, totalNetChange, manualCorrection, updatedAt
         );
+    }
+
+    public BigDecimal getManualCorrection() {
+        return manualCorrection;
+    }
+
+    public void setManualCorrection(BigDecimal manualCorrection) {
+        this.manualCorrection = manualCorrection;
     }
 
     public boolean isBaselineImportDone() {

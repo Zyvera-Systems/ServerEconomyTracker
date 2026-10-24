@@ -104,6 +104,7 @@ public class DatabaseManager {
                     total_sinks DECIMAL(18,2) NOT NULL,
                     total_transfer_volume DECIMAL(18,2) NOT NULL,
                     total_net_change DECIMAL(18,2) NOT NULL,
+                    manual_correction DECIMAL(18,2) NOT NULL DEFAULT 0,
                     updated_at BIGINT NOT NULL
                 )
                 """;
@@ -114,7 +115,24 @@ public class DatabaseManager {
             statement.executeUpdate(economyTotalsTable);
 
             migrateNameColumn(connection, statement);
+            migrateManualCorrectionColumn(connection, statement);
         }
+    }
+
+    // Older versions have no manual_correction column yet.
+    private void migrateManualCorrectionColumn(Connection connection, Statement statement) throws SQLException {
+        boolean exists = false;
+        for (String tableName : new String[] {"economy_totals", "ECONOMY_TOTALS"}) {
+            try (ResultSet columns = connection.getMetaData().getColumns(connection.getCatalog(), null, tableName, null)) {
+                while (columns.next()) {
+                    if (columns.getString("COLUMN_NAME").equalsIgnoreCase("manual_correction")) exists = true;
+                }
+            }
+        }
+        if (exists) return;
+
+        statement.executeUpdate("ALTER TABLE economy_totals ADD COLUMN manual_correction DECIMAL(18,2) NOT NULL DEFAULT 0");
+        plugin.getLogger().info("Added column economy_totals.manual_correction.");
     }
 
     // Older versions created the name column as VARCHAR(16). MySQL rejects longer names

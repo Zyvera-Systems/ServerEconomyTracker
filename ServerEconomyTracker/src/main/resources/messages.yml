@@ -2,7 +2,7 @@ prefix: "<gray>[<gold>EconomyTracker<gray>] "
 
 general:
   unknown-subcommand: "<prefix><red>Unknown subcommand."
-  usage: "<prefix><gray>Usage: <yellow>/economytracker stats or /et stats"
+  usage: "<prefix><gray>Usage: <yellow>/{label} stats<gray>, <yellow>/{label} baseline<gray>, <yellow>/{label} reload"
   totals-not-loaded: "<prefix><red>Totals are not loaded yet."
   reload-success: "<prefix><green>Config and messages have been reloaded."
   no-permission: "<prefix><red>You do not have permission to do that."
@@ -18,11 +18,34 @@ stats:
   footer: "<gray><st>----------------------------------------</st>"
 
 baseline:
-  current: "<prefix><gray>Current baseline (starting wealth): <green>{value}"
-  usage: "<prefix><gray>Usage: <yellow>/{label} baseline <set|add|remove> <amount> <gray>or <yellow>/{label} baseline recalculate"
-  invalid-amount: "<prefix><red>Invalid amount: <yellow>{input}"
-  updated: "<prefix><green>Baseline set to <yellow>{value}<green>. Current total wealth: <yellow>{total}"
-  recalculate-started: "<prefix><gray>Recalculating baseline from all player balances..."
-  recalculate-success: "<prefix><green>Baseline recalculated: <yellow>{value}<green>. Current total wealth: <yellow>{total}"
+  # /et baseline (or /et baseline info)
+  overview:
+    header: "<gray><st>----------------------------------------</st>"
+    title: "<gold>EconomyTracker Baseline"
+    baseline: "<gray>Baseline (starting wealth): <green>{value}"
+    scanned: "<gray>  from scanned balances: <white>{value}"
+    correction: "<gray>  + manual correction: <yellow>{value}"
+    total: "<gray>Current total wealth: <green>{value}"
+    hint: "<gray>All commands: <yellow>/{label} baseline help"
+    footer: "<gray><st>----------------------------------------</st>"
+
+  # /et baseline help
+  help:
+    header: "<gray><st>----------------------------------------</st>"
+    title: "<gold>EconomyTracker Baseline Help"
+    explanation: "<gray>The baseline is the money that existed when tracking started. It is made of the scanned balances plus a manual correction for money the scan cannot see (e.g. a bank plugin without Vault). The correction is kept when you recalculate."
+    info: "<yellow>/{label} baseline <gray>- show the baseline and its parts"
+    set: "<yellow>/{label} baseline set <amount> <gray>- set the baseline to this value (adjusts the correction)"
+    add: "<yellow>/{label} baseline add <amount> <gray>- add to the manual correction"
+    remove: "<yellow>/{label} baseline remove <amount> <gray>- subtract from the manual correction"
+    reset: "<yellow>/{label} baseline reset <gray>- remove the manual correction"
+    recalculate: "<yellow>/{label} baseline recalculate <gray>- rescan all balances, the correction stays"
+    footer: "<gray><st>----------------------------------------</st>"
+
+  unknown-action: "<prefix><red>Unknown baseline command. Use <yellow>/{label} baseline help"
+  missing-amount: "<prefix><red>Please enter an amount: <yellow>/{label} baseline {action} <amount>"
+  invalid-amount: "<prefix><red>Invalid amount: <yellow>{input}<red>. Use e.g. <yellow>1500.50 <red>or <yellow>1_000_000"
+  updated: "<prefix><green>Baseline updated."
+  recalculate-started: "<prefix><gray>Rescanning all balances, this can take a moment..."
   scan-running: "<prefix><red>A baseline scan is currently running. Please wait until it is finished."
   error: "<prefix><red>Could not update the baseline. Check the console for details."

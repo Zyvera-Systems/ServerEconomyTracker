@@ -64,7 +64,7 @@ public class EconomyTrackerService {
     public void loadOrCreateTotals() {
         this.totals = economyTotalsFunc.load().orElseGet(() -> {
             EconomyTotals newTotals = new EconomyTotals(
-                    false, bd(0), bd(0), bd(0), bd(0), bd(0),
+                    false, bd(0), bd(0), bd(0), bd(0), bd(0), bd(0),
                     System.currentTimeMillis()
             );
             economyTotalsFunc.save(newTotals);
@@ -100,29 +100,54 @@ public class EconomyTrackerService {
     }
 
     // The baseline is the starting wealth: current total minus everything tracked since (net change).
+    // It consists of what the scan found plus the manual correction.
     public synchronized BigDecimal getBaseline() {
         if (totals == null) return null;
         return scale(totals.getCurrentTotalBalance().subtract(totals.getTotalNetChange()));
     }
 
+    public synchronized BigDecimal getManualCorrection() {
+        if (totals == null) return null;
+        return scale(totals.getManualCorrection());
+    }
+
+    // Part of the baseline that comes from scanning the balances (baseline without manual correction).
+    public synchronized BigDecimal getScannedBaseline() {
+        if (totals == null) return null;
+        return scale(getBaseline().subtract(totals.getManualCorrection()));
+    }
+
+    // Sets the manual correction so the baseline becomes exactly this value.
     public void setBaseline(BigDecimal baseline) {
+        BigDecimal change;
         synchronized (this) {
             if (totals == null) throw new IllegalStateException("Totals are not loaded yet.");
-            totals.setCurrentTotalBalance(scale(baseline.add(totals.getTotalNetChange())));
+            change = baseline.subtract(getBaseline());
+        }
+        adjustManualCorrection(change);
+    }
+
+    // Money the scan cannot see. Stays when the baseline is recalculated.
+    public void adjustManualCorrection(BigDecimal amount) {
+        synchronized (this) {
+            if (totals == null) throw new IllegalStateException("Totals are not loaded yet.");
+            totals.setManualCorrection(scale(totals.getManualCorrection().add(amount)));
+            totals.setCurrentTotalBalance(scale(totals.getCurrentTotalBalance().add(amount)));
             totals.setUpdatedAt(System.currentTimeMillis());
             dirty = true;
         }
         persist();
-        plugin.getLogger().info("Baseline manually set to " + scale(baseline) + ". Total balance: " + totals.getCurrentTotalBalance());
+        plugin.getLogger().info("Manual correction changed by " + scale(amount) + ". Correction: "
+                + totals.getManualCorrection() + " | Baseline: " + getBaseline());
     }
 
-    public void adjustBaseline(BigDecimal amount) {
-        BigDecimal newBaseline;
+    public void resetManualCorrection() {
+        BigDecimal correction;
         synchronized (this) {
             if (totals == null) throw new IllegalStateException("Totals are not loaded yet.");
-            newBaseline = getBaseline().add(amount);
+            correction = totals.getManualCorrection();
         }
-        setBaseline(newBaseline);
+        adjustManualCorrection(correction.negate());
     }
 
     // Sums all player wallets plus all non-player accounts (banks, towns, NPC shops) and sets the
@@ -175,7 +200,8 @@ public class EconomyTrackerService {
 
             BigDecimal total;
             synchronized (this) {
-                total = scale(playerWealth.add(accountWealth).add(state.adjustment));
+                // The manual correction is money the scan cannot see, so it is kept on top.
+                total = scale(playerWealth.add(accountWealth).add(state.adjustment).add(totals.getManualCorrection()));
                 totals.setCurrentTotalBalance(total);
                 totals.setBaselineImportDone(true);
                 totals.setUpdatedAt(System.currentTimeMillis());
@@ -185,7 +211,8 @@ public class EconomyTrackerService {
             persist();
 
             plugin.getLogger().info("Player wealth: " + scale(playerWealth) + " | Bank/account wealth: " + accountWealth
-                    + " | Changes during scan: " + scale(state.adjustment));
+                    + " | Changes during scan: " + scale(state.adjustment)
+                    + " | Manual correction: " + totals.getManualCorrection());
             if (failed > 0) {
                 plugin.getLogger().warning(failed + " player balance(s) could not be read and are missing in the total. "
                         + "Use /et baseline to correct it.");
